@@ -1,0 +1,34 @@
+# Project TODO
+
+- [x] Define the MASS AI product model, secure user-scoped database tables, and validation contracts.
+- [x] Create the business-profile onboarding flow with all requested profile fields.
+- [x] Implement user-scoped campaign CRUD with statuses, generated content, notes, and dates.
+- [x] Implement server-side personalized LLM actions for chat, campaign planning, content generation, and insight interpretation.
+- [x] Build a professional public landing page with product explanation, trial CTA, pricing placeholder, FAQ, and footer.
+- [x] Build protected responsive app navigation and the personalized SaaS dashboard.
+- [x] Build the AI Marketing Manager chat, preserving user-scoped conversation history.
+- [x] Build the AI Campaign Planner with review and save-as-campaign capability.
+- [x] Build the editable AI Content Studio with save capability.
+- [x] Build Marketing Insights with raw metrics visually separated from AI analysis and recommendations.
+- [x] Derive and display the real 14-day trial state from the account creation date.
+- [x] Add loading, empty, validation, success, and error states to core user flows.
+- [x] Write and run unit tests for business logic and core server procedures.
+- [x] Verify desktop and mobile UI, browser interactions, protected routes, server runtime, and console output.
+- [x] Write complete setup, configuration, and limitation documentation in README.md.
+- [ ] Complete and document a real authenticated end-to-end validation after a user signs in through Manus OAuth.
+- [x] Fix the first-time authenticated business-profile query so it returns a defined empty-state result instead of undefined.
+- [x] Add clear client-side onboarding feedback when the business description is shorter than the required minimum.
+- [x] Remove the business-description minimum length from onboarding and allow any non-empty description.
+- [x] Audit the uploaded MASS AI codebase and preserve its onboarding, campaign, chat, planner, content, and insights workflows as the primary application.
+- [x] Migrate the supplied index.html and smass.css landing-page design, hero copy, roadblock framing, and feature cards into the React landing page.
+- [x] Add a native-language selector for English, Hindi, Telugu, and Urdu to Content Studio generation and persistence.
+- [x] Add format-aware Content Studio marketing image generation and a download control for the generated image.
+- [x] Verify the merged application, content features, responsive UI, and production build without adding billing or payment flows.
+- [ ] Run authenticated browser verification of onboarding, campaign CRUD, AI Marketing Manager chat, Campaign Planner save, Content Studio, and insights after a session is available.
+- [ ] Live-test all Content Studio languages, each image format, generated-image display/download, and saved-content persistence after a session is available.
+- [x] Confirm live Hindi Content Studio generation and matching marketing-image generation in the deployed application.
+- [ ] Confirm the remaining Content Studio languages and each image format after a session is available.
+- [x] Confirm generated-image download and saved Hindi draft persistence after a Content Studio refresh.
+- [ ] Save and synchronize a fresh checkpoint containing the multilingual image-generation implementation and latest verification notes to the connected GitHub repository.
+- [ ] Deliver a fresh downloadable MASS AI project version after synchronization.
+- [x] Document the uploaded landing-page elements migrated into React and the existing MASS AI workflows retained in the primary full-stack application.

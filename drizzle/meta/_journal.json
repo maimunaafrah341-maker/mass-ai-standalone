@@ -1,0 +1,27 @@
+{
+  "version": "7",
+  "dialect": "mysql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "5",
+      "when": 1786901451754,
+      "tag": "0000_perpetual_thundra",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "5",
+      "when": 1786901670086,
+      "tag": "0001_condemned_darkhawk",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "5",
+      "when": 1787487669575,
+      "tag": "0002_rare_edwin_jarvis",
+      "breakpoints": true
+    }
+  ]
+}
