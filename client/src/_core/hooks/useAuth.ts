@@ -1,7 +1,8 @@
 import { startLogin } from "@/const";
 import { trpc } from "@/lib/trpc";
+import { watchAuthState } from "@/lib/firebase";
 import { TRPCClientError } from "@trpc/client";
-import { useCallback, useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 type UseAuthOptions = {
   redirectOnUnauthenticated?: boolean;
@@ -16,9 +17,17 @@ export function useAuth(options?: UseAuthOptions) {
   const { redirectOnUnauthenticated = false, redirectPath } = options ?? {};
   const utils = trpc.useUtils();
 
+  // Firebase restores a persisted session asynchronously on page load. Until
+  // the first onIdTokenChanged callback fires, auth.currentUser is null, so
+  // an early auth.me call would go out unauthenticated and (with retry off)
+  // never get a second chance. Gate the query on that first callback.
+  const [firebaseReady, setFirebaseReady] = useState(false);
+  useEffect(() => watchAuthState(() => setFirebaseReady(true)), []);
+
   const meQuery = trpc.auth.me.useQuery(undefined, {
     retry: false,
     refetchOnWindowFocus: false,
+    enabled: firebaseReady,
   });
 
   const logoutMutation = trpc.auth.logout.useMutation({
@@ -57,11 +66,15 @@ export function useAuth(options?: UseAuthOptions) {
     );
     return {
       user: meQuery.data ?? null,
-      loading: meQuery.isLoading || logoutMutation.isPending,
+      // meQuery is disabled until firebaseReady, and react-query v5 reports
+      // isLoading (isPending && isFetching) as false for a disabled query —
+      // so firebaseReady has to be checked explicitly here too.
+      loading: !firebaseReady || meQuery.isLoading || logoutMutation.isPending,
       error: meQuery.error ?? logoutMutation.error ?? null,
       isAuthenticated: Boolean(meQuery.data),
     };
   }, [
+    firebaseReady,
     meQuery.data,
     meQuery.error,
     meQuery.isLoading,
@@ -71,7 +84,7 @@ export function useAuth(options?: UseAuthOptions) {
 
   useEffect(() => {
     if (!redirectOnUnauthenticated) return;
-    if (meQuery.isLoading || logoutMutation.isPending) return;
+    if (!firebaseReady || meQuery.isLoading || logoutMutation.isPending) return;
     if (state.user) return;
     if (typeof window === "undefined") return;
     if (redirectPath && window.location.pathname === redirectPath) return;
@@ -85,6 +98,7 @@ export function useAuth(options?: UseAuthOptions) {
   }, [
     redirectOnUnauthenticated,
     redirectPath,
+    firebaseReady,
     logoutMutation.isPending,
     meQuery.isLoading,
     state.user,
