@@ -1,4 +1,10 @@
-import { generateImage, generateImageViaGemini } from "./_core/imageGeneration";
+import {
+  generateImage,
+  generateImageViaCloudflare,
+  generateImageViaGemini,
+  generateImageViaHuggingFace,
+} from "./_core/imageGeneration";
+import { findStockPhoto } from "./_core/stockPhoto";
 
 export const imageFormats = {
   instagram_post: { label: "Instagram post (1:1)", ratio: "1:1", width: 1024, height: 1024 },
@@ -7,6 +13,7 @@ export const imageFormats = {
 } as const;
 
 export type ImageFormat = keyof typeof imageFormats;
+export type ImageProvider = "built_in" | "gemini" | "cloudflare" | "huggingface" | "pollinations" | "stock_photo";
 
 export function buildMarketingImagePrompt(input: { title: string; content: string; platform: string; language: string; imageFormat: ImageFormat }) {
   const format = imageFormats[input.imageFormat];
@@ -20,48 +27,89 @@ export function buildMarketingImagePrompt(input: { title: string; content: strin
   ].join("\n");
 }
 
-export async function generateMarketingImage(input: { title: string; content: string; platform: string; language: string; imageFormat: ImageFormat }) {
-  const prompt = buildMarketingImagePrompt(input);
-  try {
-    const result = await generateImage({ prompt });
-    if (!result.url) throw new Error("The built-in image service returned no image URL.");
-    return { imageUrl: result.url, provider: "built_in" as const };
-  } catch (builtInError) {
-    // Standalone deployments (no BUILT_IN_FORGE_API_URL) have no working
-    // built-in image service, so try Gemini's native image generation next —
-    // it uses the same GEMINI_API_KEY that already powers text generation,
-    // and is far more reliable than the last-resort public fallback below.
+// Pollinations is a free, unauthenticated, heavily-shared public API and
+// occasionally returns a transient error under load (or gets rate-limited
+// by IP range). Retry a few times with a fresh seed before giving up — no
+// dependency on Manus's storage proxy either way, since Pollinations serves
+// the image directly from this URL.
+async function generateViaPollinations(prompt: string, format: (typeof imageFormats)[ImageFormat]): Promise<{ imageUrl: string }> {
+  const attempts = 3;
+  let lastError: unknown;
+  for (let attempt = 0; attempt < attempts; attempt++) {
+    const sourceUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?width=${format.width}&height=${format.height}&nologo=true&seed=${Date.now()}-${attempt}`;
     try {
-      const result = await generateImageViaGemini({ prompt });
-      if (!result.url) throw new Error("Gemini returned no image URL.");
-      return { imageUrl: result.url, provider: "gemini" as const };
-    } catch (geminiError) {
-      const format = imageFormats[input.imageFormat];
-      // Pollinations is a free, unauthenticated, heavily-shared public API
-      // and occasionally returns a transient 500 under load. Retry a few
-      // times with a fresh seed each time before giving up — no dependency
-      // on Manus's storage proxy either way, since Pollinations serves the
-      // image directly from this URL.
-      const attempts = 3;
-      let lastFallbackError: unknown;
-      for (let attempt = 0; attempt < attempts; attempt++) {
-        const sourceUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?width=${format.width}&height=${format.height}&nologo=true&seed=${Date.now()}-${attempt}`;
-        try {
-          const response = await fetch(sourceUrl, { method: "HEAD", signal: AbortSignal.timeout(60000) });
-          if (!response.ok) throw new Error(`Public fallback returned ${response.status}.`);
-          return { imageUrl: sourceUrl, provider: "pollinations" as const };
-        } catch (fallbackError) {
-          lastFallbackError = fallbackError;
-          console.warn(`[MASS AI] Pollinations attempt ${attempt + 1}/${attempts} failed`, fallbackError);
-          if (attempt < attempts - 1) await new Promise(r => setTimeout(r, 1500));
-        }
-      }
-      console.error("[MASS AI] Marketing image generation failed", {
-        builtInError,
-        geminiError,
-        fallbackError: lastFallbackError,
-      });
-      throw new Error("MASS AI could not generate an image right now. Please try again shortly.");
+      const response = await fetch(sourceUrl, { method: "HEAD", signal: AbortSignal.timeout(60000) });
+      if (!response.ok) throw new Error(`Public fallback returned ${response.status}.`);
+      return { imageUrl: sourceUrl };
+    } catch (error) {
+      lastError = error;
+      if (attempt < attempts - 1) await new Promise(r => setTimeout(r, 1500));
     }
   }
+  throw lastError instanceof Error ? lastError : new Error("Pollinations failed");
+}
+
+export async function generateMarketingImage(input: { title: string; content: string; platform: string; language: string; imageFormat: ImageFormat }) {
+  const prompt = buildMarketingImagePrompt(input);
+  const format = imageFormats[input.imageFormat];
+  const orientation = format.ratio === "1:1" ? "square" : "portrait";
+
+  // Ordered from most to least ideal. Every tier is independently optional —
+  // an unconfigured provider (missing API key) just throws fast and we move
+  // on to the next one. Stock photos are the guaranteed-to-work last resort.
+  const attempts: Array<{ provider: ImageProvider; run: () => Promise<{ imageUrl: string }> }> = [
+    {
+      provider: "built_in",
+      run: async () => {
+        const result = await generateImage({ prompt });
+        if (!result.url) throw new Error("The built-in image service returned no image URL.");
+        return { imageUrl: result.url };
+      },
+    },
+    {
+      provider: "gemini",
+      run: async () => {
+        const result = await generateImageViaGemini({ prompt });
+        if (!result.url) throw new Error("Gemini returned no image URL.");
+        return { imageUrl: result.url };
+      },
+    },
+    {
+      provider: "cloudflare",
+      run: async () => {
+        const result = await generateImageViaCloudflare({ prompt });
+        if (!result.url) throw new Error("Cloudflare Workers AI returned no image URL.");
+        return { imageUrl: result.url };
+      },
+    },
+    {
+      provider: "huggingface",
+      run: async () => {
+        const result = await generateImageViaHuggingFace({ prompt });
+        if (!result.url) throw new Error("Hugging Face returned no image URL.");
+        return { imageUrl: result.url };
+      },
+    },
+    { provider: "pollinations", run: () => generateViaPollinations(prompt, format) },
+    {
+      provider: "stock_photo",
+      run: async () => {
+        const result = await findStockPhoto(input.title, orientation);
+        return { imageUrl: result.url };
+      },
+    },
+  ];
+
+  const errors: Partial<Record<ImageProvider, unknown>> = {};
+  for (const attempt of attempts) {
+    try {
+      const { imageUrl } = await attempt.run();
+      return { imageUrl, provider: attempt.provider };
+    } catch (error) {
+      errors[attempt.provider] = error;
+    }
+  }
+
+  console.error("[MASS AI] Marketing image generation failed on every provider", errors);
+  throw new Error("MASS AI could not generate an image right now. Please try again shortly.");
 }

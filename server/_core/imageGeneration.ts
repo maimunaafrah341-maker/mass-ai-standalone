@@ -165,6 +165,93 @@ export async function generateImageViaGemini(
   return { url: storedUrl };
 }
 
+const CLOUDFLARE_IMAGE_MODEL = "@cf/black-forest-labs/flux-1-schnell";
+
+/**
+ * Generate an image via Cloudflare Workers AI's free daily quota (currently
+ * 10,000 "neurons"/day, no credit card required). Requires a Cloudflare
+ * account + API token with Workers AI access.
+ */
+export async function generateImageViaCloudflare(
+  options: Pick<GenerateImageOptions, "prompt">
+): Promise<GenerateImageResponse> {
+  if (!ENV.cloudflareAccountId || !ENV.cloudflareApiToken) {
+    throw new Error("CLOUDFLARE_ACCOUNT_ID / CLOUDFLARE_API_TOKEN is not configured");
+  }
+
+  const url = `https://api.cloudflare.com/client/v4/accounts/${ENV.cloudflareAccountId}/ai/run/${CLOUDFLARE_IMAGE_MODEL}`;
+
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      authorization: `Bearer ${ENV.cloudflareApiToken}`,
+    },
+    body: JSON.stringify({ prompt: options.prompt }),
+  });
+
+  if (!response.ok) {
+    const detail = await response.text().catch(() => "");
+    throw new Error(
+      `Cloudflare image generation request failed (${response.status} ${response.statusText})${detail ? `: ${detail}` : ""}`
+    );
+  }
+
+  const result = (await response.json()) as {
+    result?: { image?: string };
+    errors?: Array<{ message: string }>;
+  };
+
+  if (!result.result?.image) {
+    const detail = result.errors?.map(e => e.message).join("; ");
+    throw new Error(`Cloudflare response contained no image data${detail ? `: ${detail}` : ""}`);
+  }
+
+  const buffer = Buffer.from(result.result.image, "base64");
+  const { url: storedUrl } = await storagePut(`generated/${Date.now()}.png`, buffer, "image/png");
+  return { url: storedUrl };
+}
+
+const HUGGING_FACE_IMAGE_MODEL = "black-forest-labs/FLUX.1-schnell";
+
+/**
+ * Generate an image via the Hugging Face free Inference API. Requires a free
+ * HF account + access token. Can occasionally 503 with "model is loading" —
+ * that's treated as a normal failure here since this is already a fallback
+ * tier in server/contentImage.ts.
+ */
+export async function generateImageViaHuggingFace(
+  options: Pick<GenerateImageOptions, "prompt">
+): Promise<GenerateImageResponse> {
+  if (!ENV.huggingFaceApiToken) {
+    throw new Error("HUGGINGFACE_API_TOKEN is not configured");
+  }
+
+  const url = `https://api-inference.huggingface.co/models/${HUGGING_FACE_IMAGE_MODEL}`;
+
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      authorization: `Bearer ${ENV.huggingFaceApiToken}`,
+    },
+    body: JSON.stringify({ inputs: options.prompt }),
+    signal: AbortSignal.timeout(60000),
+  });
+
+  if (!response.ok) {
+    const detail = await response.text().catch(() => "");
+    throw new Error(
+      `Hugging Face image generation request failed (${response.status} ${response.statusText})${detail ? `: ${detail}` : ""}`
+    );
+  }
+
+  const mimeType = response.headers.get("content-type") || "image/jpeg";
+  const buffer = Buffer.from(await response.arrayBuffer());
+  const { url: storedUrl } = await storagePut(`generated/${Date.now()}.png`, buffer, mimeType);
+  return { url: storedUrl };
+}
+
 export type ImageModelInfo = {
   /** Forge model enum, e.g. "MODEL_GPT_IMAGE_2". Pass into generateImage({ model }). */
   model?: string;

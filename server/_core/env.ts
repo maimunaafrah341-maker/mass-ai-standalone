@@ -27,6 +27,12 @@ export const ENV = {
   // OpenAI-compat "forge" endpoint above can't serve image generation).
   geminiApiKey,
   geminiImageModel: process.env.GEMINI_IMAGE_MODEL || "gemini-2.5-flash-image",
+  // Free-tier image generation fallbacks — see server/contentImage.ts. Each
+  // is optional; an unset key just skips that tier of the fallback chain.
+  cloudflareAccountId: process.env.CLOUDFLARE_ACCOUNT_ID ?? "",
+  cloudflareApiToken: process.env.CLOUDFLARE_API_TOKEN ?? "",
+  huggingFaceApiToken: process.env.HUGGINGFACE_API_TOKEN ?? "",
+  pexelsApiKey: process.env.PEXELS_API_KEY ?? "",
   // Firebase Admin (standalone auth) — see server/_core/firebaseAuth.ts
   firebaseProjectId: process.env.FIREBASE_PROJECT_ID ?? "",
   firebaseClientEmail: process.env.FIREBASE_CLIENT_EMAIL ?? "",
