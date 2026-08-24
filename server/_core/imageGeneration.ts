@@ -106,6 +106,65 @@ export async function generateImage(
   };
 }
 
+/**
+ * Generate an image via Google's native Gemini API (not the OpenAI-compat
+ * "forge" chat-completions endpoint, which has no image generation route).
+ * Used as a fallback in standalone deployments where only GEMINI_API_KEY is
+ * configured — see server/contentImage.ts.
+ */
+export async function generateImageViaGemini(
+  options: Pick<GenerateImageOptions, "prompt">
+): Promise<GenerateImageResponse> {
+  if (!ENV.geminiApiKey) {
+    throw new Error("GEMINI_API_KEY is not configured");
+  }
+
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${ENV.geminiImageModel}:generateContent`;
+
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-goog-api-key": ENV.geminiApiKey,
+    },
+    body: JSON.stringify({
+      contents: [{ parts: [{ text: options.prompt }] }],
+      generationConfig: { responseModalities: ["IMAGE"] },
+    }),
+  });
+
+  if (!response.ok) {
+    const detail = await response.text().catch(() => "");
+    throw new Error(
+      `Gemini image generation request failed (${response.status} ${response.statusText})${detail ? `: ${detail}` : ""}`
+    );
+  }
+
+  const result = (await response.json()) as {
+    candidates?: Array<{
+      content?: {
+        parts?: Array<{ inlineData?: { data: string; mimeType: string } }>;
+      };
+    }>;
+  };
+
+  const inlineData = result.candidates
+    ?.flatMap(c => c.content?.parts ?? [])
+    .find(part => part.inlineData)?.inlineData;
+
+  if (!inlineData) {
+    throw new Error("Gemini response contained no image data");
+  }
+
+  const buffer = Buffer.from(inlineData.data, "base64");
+  const { url: storedUrl } = await storagePut(
+    `generated/${Date.now()}.png`,
+    buffer,
+    inlineData.mimeType
+  );
+  return { url: storedUrl };
+}
+
 export type ImageModelInfo = {
   /** Forge model enum, e.g. "MODEL_GPT_IMAGE_2". Pass into generateImage({ model }). */
   model?: string;

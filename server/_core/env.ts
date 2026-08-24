@@ -23,6 +23,10 @@ export const ENV = {
   isProduction: process.env.NODE_ENV === "production",
   forgeApiUrl,
   forgeApiKey,
+  // Raw Gemini API key, used for native Gemini image generation (the
+  // OpenAI-compat "forge" endpoint above can't serve image generation).
+  geminiApiKey,
+  geminiImageModel: process.env.GEMINI_IMAGE_MODEL || "gemini-2.5-flash-image",
   // Firebase Admin (standalone auth) — see server/_core/firebaseAuth.ts
   firebaseProjectId: process.env.FIREBASE_PROJECT_ID ?? "",
   firebaseClientEmail: process.env.FIREBASE_CLIENT_EMAIL ?? "",
