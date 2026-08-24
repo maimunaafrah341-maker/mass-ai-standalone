@@ -28,18 +28,25 @@ export async function generateMarketingImage(input: { title: string; content: st
     return { imageUrl: result.url, provider: "built_in" as const };
   } catch (builtInError) {
     const format = imageFormats[input.imageFormat];
-    const sourceUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?width=${format.width}&height=${format.height}&nologo=true&seed=${Date.now()}`;
-    try {
-      // Confirm the image actually renders before handing the URL to the
-      // client. Pollinations serves the image directly from this same URL —
-      // no re-upload to blob storage needed, so this path has no dependency
-      // on Manus's storage proxy and works unmodified in any environment.
-      const response = await fetch(sourceUrl, { method: "HEAD", signal: AbortSignal.timeout(60000) });
-      if (!response.ok) throw new Error(`Public fallback returned ${response.status}.`);
-      return { imageUrl: sourceUrl, provider: "pollinations" as const };
-    } catch (fallbackError) {
-      console.error("[MASS AI] Marketing image generation failed", { builtInError, fallbackError });
-      throw new Error("MASS AI could not generate an image right now. Please try again shortly.");
+    // Pollinations is a free, unauthenticated, heavily-shared public API and
+    // occasionally returns a transient 500 under load. Retry a few times
+    // with a fresh seed each time before giving up — no dependency on
+    // Manus's storage proxy either way, since Pollinations serves the image
+    // directly from this URL.
+    const attempts = 3;
+    let lastFallbackError: unknown;
+    for (let attempt = 0; attempt < attempts; attempt++) {
+      const sourceUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?width=${format.width}&height=${format.height}&nologo=true&seed=${Date.now()}-${attempt}`;
+      try {
+        const response = await fetch(sourceUrl, { method: "HEAD", signal: AbortSignal.timeout(60000) });
+        if (!response.ok) throw new Error(`Public fallback returned ${response.status}.`);
+        return { imageUrl: sourceUrl, provider: "pollinations" as const };
+      } catch (fallbackError) {
+        lastFallbackError = fallbackError;
+        if (attempt < attempts - 1) await new Promise(r => setTimeout(r, 1500));
+      }
     }
+    console.error("[MASS AI] Marketing image generation failed", { builtInError, fallbackError: lastFallbackError });
+    throw new Error("MASS AI could not generate an image right now. Please try again shortly.");
   }
 }
